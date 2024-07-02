@@ -1,9 +1,12 @@
+//! This target is a confluence of Linux and Wasm models, inheriting most
+//! aspects from their respective base targets
+
 use crate::spec::{
-    add_link_args, cvs, Cc, LinkSelfContainedDefault, LinkerFlavor, PanicStrategy, RelocModel,
-    TargetOptions, TlsModel,
+    crt_objects, add_link_args, cvs, Cc, LinkSelfContainedDefault, LinkerFlavor, PanicStrategy,
+    RelocModel, TargetOptions, TlsModel,
 };
 
-pub fn options() -> TargetOptions {
+pub fn opts() -> TargetOptions {
     macro_rules! args {
         ($prefix:literal) => {
             &[
@@ -53,7 +56,9 @@ pub fn options() -> TargetOptions {
 
     TargetOptions {
         is_like_wasm: true,
-        families: cvs!["wasm"],
+        families: cvs!["wasm", "unix"],
+        os: "linux".into(),
+        env: "musl".into(),
 
         // we allow dynamic linking, but only cdylibs. Basically we allow a
         // final library artifact that exports some symbols (a wasm module) but
@@ -76,10 +81,6 @@ pub fn options() -> TargetOptions {
         // exceptions.
         panic_strategy: PanicStrategy::Abort,
 
-        // Wasm doesn't have atomics yet, so tell LLVM that we're in a single
-        // threaded model which will legalize atomics to normal operations.
-        singlethread: false,
-
         // Symbol visibility takes care of this for the WebAssembly.
         // Additionally the only known linker, LLD, doesn't support the script
         // arguments just yet
@@ -97,6 +98,8 @@ pub fn options() -> TargetOptions {
         // some other way to compensate for lack of `-nostartfiles` in linker
         // invocation.
         link_self_contained: LinkSelfContainedDefault::True,
+        pre_link_objects_self_contained: crt_objects::pre_wasi_self_contained(),
+        post_link_objects_self_contained: crt_objects::post_wasi_self_contained(),
 
         // This has no effect in LLVM 8 or prior, but in LLVM 9 and later when
         // PIC code is implemented this has quite a drastic effect if it stays
@@ -123,6 +126,29 @@ pub fn options() -> TargetOptions {
         // that this isn't useful for wasm and has tricky issues with
         // representation, so this is disabled.
         generate_arange_section: false,
+
+        // Right now this is a bit of a workaround but we're currently saying that
+        // the target by default has a static crt which we're taking as a signal
+        // for "use the bundled crt". If that's turned off then the system's crt
+        // will be used, but this means that default usage of this target doesn't
+        // need an external compiler but it's still interoperable with an external
+        // compiler if configured correctly.
+        crt_static_default: true,
+        crt_static_respected: true,
+
+        // Allow `+crt-static` to create a "cdylib" output which is just a wasm file
+        // without a main function.
+        crt_static_allows_dylibs: true,
+
+        // Wasm start ignores arguments -- relies on API call from interface.
+        main_needs_argc_argv: false,
+
+        // Wasm toolchains mangle the name of "main" to distinguish between different
+        // signatures.
+        entry_name: "__main_void".into(),
+
+        // Wasm Feature flags for supporting Linux
+        features: "+atomics,+bulk-memory,+mutable-globals,+sign-ext".into(),
 
         ..Default::default()
     }
