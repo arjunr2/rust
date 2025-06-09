@@ -54,8 +54,52 @@ impl DoubleEndedIterator for Args {
     }
 }
 
+
+#[cfg(all(target_arch = "wasm32", target_os = "linux"))]
+mod imp {
+    use super::Args;
+
+    use crate::os::raw::c_uint as wali_argidx_t;
+    use crate::os::raw::c_uint;
+    use crate::os::unix::prelude::*;
+    use crate::ffi::{CString, OsString};
+
+    #[link(wasm_import_module = "wali")]
+    extern "C" {
+        pub fn __cl_get_argc() -> wali_argidx_t;
+        pub fn __cl_get_argv_len(offset: wali_argidx_t) -> c_uint;
+        pub fn __cl_copy_argv(buf: *mut i8, offset: wali_argidx_t) -> c_uint;
+    }
+
+    #[inline(always)]
+    pub unsafe fn init(_argc: isize, _argv: *const *const u8) {}
+
+    pub unsafe fn wali_arg(idx: c_uint) -> OsString {
+        let arg_len = unsafe { __cl_get_argv_len(idx) };
+        if arg_len == 0 {
+            panic!("WALI argv element len should be > 0");
+        }
+        let arg_buf = CString::new(vec![b'x'; arg_len as usize]).unwrap();
+        let ptr = arg_buf.into_raw();
+        let arg_buf = unsafe { 
+            __cl_copy_argv(ptr, idx);
+            CString::from_raw(ptr)
+        };
+        let mut arg_buf = arg_buf.into_bytes_with_nul();
+        let _ = arg_buf.pop();
+        OsStringExt::from_vec(arg_buf)
+    }
+
+    pub fn args() -> Args {
+        let argc = unsafe { __cl_get_argc() };
+        let args: Vec<OsString> = (0..argc).map(|x| unsafe { wali_arg(x) } ).collect();
+        Args { iter: args.into_iter() }
+    }
+}
+
+
 #[cfg(any(
-    target_os = "linux",
+    all(target_os = "linux", not(target_arch = "wasm32")),
     target_os = "android",
     target_os = "freebsd",
     target_os = "dragonfly",
