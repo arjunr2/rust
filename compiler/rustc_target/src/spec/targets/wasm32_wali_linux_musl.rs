@@ -13,14 +13,14 @@ pub fn target() -> Target {
     options.add_pre_link_args(
         LinkerFlavor::WasmLld(Cc::Yes),
         &[
-            "--target=wasm32-wasi-threads",
+            "--target=wasm32-wali-linux-musl",
             "-Wl,--export-memory,",
             "-Wl,--shared-memory",
         ],
     );
 
     Target {
-        llvm_target: "wasm32-wasi".into(),
+        llvm_target: "wasm32-wali-linux-musl".into(),
         metadata: crate::spec::TargetMetadata {
             description: None,
             tier: None,
